@@ -27,7 +27,7 @@ ENV/
 
 # Model files (large binary files)
 models/*.pt
-runs/
+/models
 
 # IDE specific files
 .idea/
