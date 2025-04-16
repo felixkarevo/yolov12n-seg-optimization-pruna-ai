@@ -1,13 +1,15 @@
 import torch
 import time # Import time for benchmarking
+import os
 from ultralytics import YOLO  # Assuming you use ultralytics YOLO, adjust if needed
 
-from pruna import smash, SmashConfig
+from pruna import smash, SmashConfig, PrunaModel
 from pruna.logging.logger import PrunaLoggerContext
 
 # --- Configuration ---
-MODEL_PATH = "models/yolov12n-seg-residual.pt" # Make sure this path is correct
-SMASHED_MODEL_PATH = "models/yolov12n-seg-residual_smashed_tc_gpu.pt" # Path to save the optimized model
+MODEL_PATH = "models/yolov12n-seg-residual-640.pt" # Make sure this path is correct
+SMASHED_MODEL_FOLDER = "models/yolov12n-seg-residual-640-smashed" # Folder to save the optimized model
+SMASHED_MODEL_PATH = "models/yolov12n-seg-residual-640smashed_tc_gpu.pt" # Path to save the YOLO model with smashed parts
 
 # Benchmarking parameters
 NUM_WARMUP_RUNS = 10
@@ -95,12 +97,10 @@ with PrunaLoggerContext(verbose=True):
         smashed_model_part_wrapper = smash(model=model_to_smash, smash_config=smash_config)
         print("Pruna smash process completed successfully.")
 
-        # Extract the actual optimized model module
-        smashed_model_part = smashed_model_part_wrapper.model
-
         # --- Benchmark After Optimization ---
         print("\nBenchmarking SMASHED model...")
-        smashed_latency = benchmark_inference(smashed_model_part, sample_input, device)
+        # Benchmark the model with its wrapper
+        smashed_latency = benchmark_inference(smashed_model_part_wrapper.model, sample_input, device)
 
         # --- Print Results ---
         print("\n--- Benchmarking Results ---")
@@ -113,18 +113,22 @@ with PrunaLoggerContext(verbose=True):
             print("Could not calculate speedup (original latency was zero).")
         print("---------------------------")
 
-        # 4. Replace the original model part with the smashed one
-        model.model = smashed_model_part
-
-        # 5. Save the smashed model
-        print(f"\nSaving smashed model to: {SMASHED_MODEL_PATH}")
-        # For ultralytics YOLO:
+        # 4. Save the PrunaModel wrapper using the recommended method
+        print(f"\nSaving smashed model to: {SMASHED_MODEL_FOLDER}")
+        os.makedirs(SMASHED_MODEL_FOLDER, exist_ok=True)
+        smashed_model_part_wrapper.save_pretrained(SMASHED_MODEL_FOLDER)
+        print("Smashed model wrapper saved successfully.")
+        
+        # 5. Replace the original model part with the smashed one 
+        model.model = smashed_model_part_wrapper.model
+        
+        # 6. Save the full YOLO model (this is optional but can be useful)
+        print(f"Saving complete YOLO model to: {SMASHED_MODEL_PATH}")
         model.save(SMASHED_MODEL_PATH)
-        # For raw PyTorch models (alternative):
-        # torch.save(smashed_model_part.state_dict(), SMASHED_MODEL_PATH) # Save state_dict
-        print("Smashed model saved successfully.")
+        print("Complete YOLO model with smashed parts saved successfully.")
 
         print("\nModel is optimized, benchmarked, saved, and ready for inference.")
+        print(f"To load the smashed model part later, use: PrunaModel.from_pretrained('{SMASHED_MODEL_FOLDER}')")
 
     except Exception as e:
         print(f"\nError during Pruna smash process or final benchmarking/saving: {e}")
